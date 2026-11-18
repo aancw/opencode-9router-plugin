@@ -12,10 +12,34 @@ It discovers available models from your 9router endpoint at startup and injects 
 - Dual entrypoint in one package:
   - **OpenCode v2**: registers provider `9router` via `ctx.provider.transform` using `@opencode/ai/providers/openai-compatible`
   - **OpenCode v1**: injects provider config through the legacy `config` hook using `@ai-sdk/openai-compatible`
+- **Thinking variants** on reasoning-capable models (v2): `low`, `medium`, `high` effort levels selectable as `9router/<model>#high`
+- **Full model metadata mapping** (v2): context window / max output limits, per-million token pricing (incl. cache read/write), tools, vision (`input: image`) and pdf input capabilities
+- **Loopback relay fallback** (v2): when the opencode process is denied local-network access (macOS can refuse LAN connections for a binary while curl/node still work), the plugin fetches the catalog via curl and routes chat traffic through a tiny node relay on `127.0.0.1` so listing and streaming both keep working
 - Sends `OPENCODE_9ROUTER_API_KEY` as Bearer auth when discovering models
 - Optionally sets the default model when opencode has none configured
 - Never writes opencode config from the runtime plugin
 - Includes an explicit installer/check CLI for safer setup and troubleshooting
+
+## Thinking Variants (OpenCode v2)
+
+Variants come from the live catalog when 9router advertises per-model metadata:
+`capabilities.reasoning` gates them and `thinking_levels` lists exactly which levels a
+model accepts (e.g. `none/high/max` on deepseek channels, `none..xhigh` on OpenAI
+channels). Effort levels map to opencode's `reasoningEffort`, which reaches the request
+as the standard `reasoning_effort` body param — 9router then translates it to the
+upstream dialect per model (`thinkingFormat`). For always-reasoning toggle upstreams
+(zai/minimax) the advertised `thinking` level becomes a `#thinking` variant. When the
+endpoint only returns bare ids (older gateways), the plugin falls back to model-id
+heuristics.
+
+Select a variant with `#`:
+
+```bash
+opencode run -m 9router/tokenharbor/deepseek-v4-flash#high "Review this migration plan"
+```
+
+Models without reasoning metadata reject variants with "Variant unavailable". OpenCode
+v1 does not support variants; there the models appear without them.
 
 ## Recommended Install
 
@@ -162,13 +186,14 @@ Version 0.2.0 adds OpenCode v2 support via a dual entrypoint:
 - `OPENCODE_9ROUTER_URL` (optional): 9router base URL. Default `http://localhost:20128/v1`
 - `OPENCODE_9ROUTER_API_KEY` (recommended): API key used by provider options and model discovery requests
 - `OPENCODE_9ROUTER_TIMEOUT_MS` (optional): fetch timeout in ms. Default `5000`
+- `OPENCODE_9ROUTER_NODE` (optional): absolute path to a node binary for the loopback relay. The plugin otherwise probes `node` on `PATH`, a login shell `PATH`, common install locations and `~/.nvm/versions/node/*`.
 
 ## Development
 
 ```bash
 npm install
-npm run build      # tsc -> dist/
-npm run mock       # start a mock 9router /models endpoint on :20128
+npm run build      # tsc -> dist/ (required: opencode silently skips the plugin when dist/ is missing)
+npm run mock       # start a mock 9router (models + chat completions) on :20128
 ```
 
 ### Local testing
@@ -178,8 +203,9 @@ npm run mock       # start a mock 9router /models endpoint on :20128
   ```bash
   mkdir -p .opencode/plugins
   cp dist/index.js .opencode/plugins/9router.js
-  npx -y @opencode/cli@2.0.16 models       # should list 9router/... models
-  npx -y @opencode/cli@2.0.16 plugin list  # should show id "9router"
+  npx -y @opencode/cli@2.3.0 models       # should list 9router/... models
+  npx -y @opencode/cli@2.3.0 plugin list  # should show id "9router"
+  opencode run -m 9router/gpt-5.2#high "ok"  # reasoning_effort=high must reach the upstream
   ```
 
   Note: v2 ignores file-path entries in project config files (`"plugins": ["./dist/index.js"]`) — use the `.opencode/plugins/` directory for local files, or the npm package name for published installs.
@@ -194,9 +220,11 @@ npm run mock       # start a mock 9router /models endpoint on :20128
 ## Troubleshooting
 
 - Restart opencode after changing config or installing plugins.
+- **Local path plugin shows nothing**: run `npm install && npm run build` in the plugin directory. OpenCode v2 resolves directory entries through `package.json` → `main` (`dist/index.js`) and silently skips the entry when the file is missing.
 - If `/model` does not show 9router models, run `npx opencode-9router-plugin check`.
-- If models are empty, verify that your 9router endpoint is running and `/models` is reachable.
+- If models are empty, verify that your 9router endpoint is running and `/models` is reachable. Note that `opencode models` without `--standalone` talks to the background service, which only sees env vars it was started with — restart the service (or use `--standalone`) after changing `OPENCODE_9ROUTER_*` variables.
 - If you see `Missing API Key`, set `OPENCODE_9ROUTER_API_KEY` and restart opencode.
+- `Variant unavailable for 9router/<model>: <id>` means the model did not match a reasoning hint; 9router's Claude thinking is exposed as separate `-thinking` model ids, so pick those directly.
 - If you previously used a local development copy, remove duplicate local entries such as `./plugins/opencode-9router.ts` before switching to the npm package.
 
 ## Github Repository
