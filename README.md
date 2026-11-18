@@ -230,3 +230,8 @@ npm run mock       # start a mock 9router (models + chat completions) on :20128
 ## Github Repository
 
 https://github.com/mdhb2/opencode-9router-plugin
+
+## Credits
+
+- Upstream project: [mdhb2/opencode-9router-plugin](https://github.com/mdhb2/opencode-9router-plugin) by [@mdhb2](https://github.com/mdhb2). All versions up to `0.2.0` are upstream work.
+- This fork ([aancw/opencode-9router-plugin](https://github.com/aancw/opencode-9router-plugin)) adds thinking variants, full model metadata mapping, and the loopback relay fallback on top of upstream `0.2.0`. See [CHANGELOG.md](./CHANGELOG.md) for details.
